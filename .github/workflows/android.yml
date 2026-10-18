@@ -1,0 +1,70 @@
+name: Build KANASHI-Flix APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
+      - ".github/workflows/android.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Extract project ZIP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          mkdir -p extracted
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "File ZIP proyek tidak ditemukan"
+            exit 1
+          fi
+          unzip -o "$ZIP_FILE" -d extracted
+          echo "Isi ZIP:"
+          find extracted -maxdepth 4 -type f | head -100
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Find Android project
+        id: project
+        run: |
+          GRADLE_FILE=$(find extracted -type f \( -name gradlew -o -name build.gradle -o -name build.gradle.kts \) | head -n 1)
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "File konfigurasi Gradle tidak ditemukan di ZIP."
+            echo "Periksa apakah ZIP berisi source code Android."
+            exit 1
+          fi
+          PROJECT_DIR=$(dirname "$GRADLE_FILE")
+          while [ "$PROJECT_DIR" != "extracted" ] && [ ! -f "$PROJECT_DIR/settings.gradle" ] && [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; do
+            PROJECT_DIR=$(dirname "$PROJECT_DIR")
+          done
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Proyek ditemukan di $PROJECT_DIR"
+
+      - name: Build APK
+        run: |
+          cd "${{ steps.project.outputs.dir }}"
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          else
+            sudo apt-get install -y gradle
+            gradle assembleDebug
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KANASHI-Flix-APK
+          path: extracted/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
